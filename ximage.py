@@ -1,26 +1,129 @@
 #!/usr/bin/env python
 
-import os, sys, argparse, cv2, token
+import os, sys, argparse, cv2, ast
 import numpy as np
 from libxmp import XMPFiles, XMPMeta, XMPError, consts
 from uuid import uuid4, UUID
 from hashlib import sha1
 from datetime import datetime
-from StringIO import StringIO
-import tokenize
-
-try:
-    generate_tokens = tokenize.generate_tokens
-except AttributeError:
-    # Python 3. Note that we use the undocumented _tokenize because it expects
-    # strings, not bytes. See also Python issue #9969.
-    generate_tokens = tokenize._tokenize
+from string import Template
+import cPickle as pickle
 
 XMP_NS_ALIQUIS = 'http://bioretics.com/aliquis'
 
 XMPMeta.register_namespace(XMP_NS_ALIQUIS, 'aliquis')
 
-__all__ = [ 'XImageMeta', 'XItem', 'XClass', 'XBlob', 'ximread', 'ximwrite', 'ximage_main' ]
+__all__ = [ 'XImageMeta', 'XItem', 'XClass', 'XBlob', 'XImageParseError', 'XImageEmptyXMPError', 'ximread', 'ximwrite', 'ximage_main' ]
+
+_XIMAGE_INDEX_CREATE_SCHEMA = """
+-- Parse::SQL::Dia       version 0.27
+-- Documentation         http://search.cpan.org/dist/Parse-Dia-SQL/
+-- Environment           Perl 5.018002, /usr/bin/perl
+-- Architecture          x86_64-linux-gnu-thread-multi
+-- Target Database       sqlite3fk
+-- Input file            ximage_schema.dia
+-- Generated at          Tue Sep 19 16:21:30 2017
+-- Typemap for sqlite3fk not found in input file
+
+-- get_constraints_drop
+drop index if exists idx_xccnc;
+drop index if exists idx_ximxit;
+
+-- get_permissions_drop
+
+-- get_view_drop
+
+-- get_schema_drop
+drop table if exists XBlob;
+drop table if exists XItem;
+drop table if exists XImage;
+drop table if exists XClass;
+drop table if exists XImageParam;
+drop table if exists XBelonging;
+
+-- get_smallpackage_pre_sql
+
+-- get_schema_create
+
+create table XBlob (
+   id            integer not null,
+   xbelonging_id integer not null,
+   parent_id     integer null    ,
+   xclass_id     integer not null,
+   val           real    not null,
+   area          real    not null,
+   vals          vector  not null,
+   contour       points  not null,
+   constraint pk_XBlob primary key (id),
+   foreign key(xclass_id) references XClass(id) ,
+   foreign key(parent_id) references XBlob(id) ,
+   foreign key(xbelonging_id) references XBelonging(id)
+)   ;
+
+create table XItem (
+   id uuid not null,
+   constraint pk_XItem primary key (id)
+)   ;
+
+create table XImage (
+   id   uuid not null,
+   path text not null,
+   constraint pk_XImage primary key (id)
+)   ;
+
+create table XClass (
+   id      integer not null,
+   classid integer not null,
+   name    string  not null,
+   color   color   not null,
+   constraint pk_XClass primary key (id)
+)   ;
+
+create table XImageParam (
+   ximage_id  uuid    not null,
+   param_type integer not null,
+   name       text    not null,
+   val        xvalue  not null,
+   constraint pk_XImageParam primary key (ximage_id,param_type,name),
+   foreign key(ximage_id) references XImage(id)
+)   ;
+
+create table XBelonging (
+   id        integer not null,
+   ximage_id uuid    not null,
+   xitem_id  uuid    not null,
+   constraint pk_XBelonging primary key (id),
+   foreign key(ximage_id) references XImage(id) ,
+   foreign key(xitem_id) references XItem(id)
+)   ;
+
+-- get_view_create
+
+-- get_permissions_create
+
+-- get_inserts
+
+-- get_smallpackage_post_sql
+
+-- get_associations_create
+create unique index idx_xccnc on XClass (classid,name,color) ;
+create unique index idx_ximxit on XBelonging (ximage_id,xitem_id) ;
+"""
+
+
+class XImageEmptyXMPError(Exception):
+    def __init__(self, file_path):
+        self.file_path = file_path
+
+    def __str__(self):
+        return 'empty XMP in file "%s"' % (self.file_path,)
+
+class XImageParseError(Exception):
+    def __init__(self, tag_name):
+        self.tag_name = tag_name
+
+    def __str__(self):
+        return 'parsing tag "%s"' % (self.tag_name,)
 
 class XImageMeta(object):
     XMP_TEMPLATE = """<x:xmpmeta xmlns:x="adobe:ns:meta/" x:xmptk="Exempi + XMP Core 5.1.2">
@@ -59,7 +162,8 @@ class XImageMeta(object):
     def read(path):
         xmpfile = XMPFiles(file_path=path, open_forupdate=False)
         xmp = xmpfile.get_xmp()
-        assert xmp is not None, 'Image has empty XMP'
+        if xmp is None:
+            raise XImageEmptyXMPError(path)
         return XImageMeta.parse(xmp)
 
     @staticmethod
@@ -70,10 +174,18 @@ class XImageMeta(object):
         else:
             xmp = xmp_or_str
 
-        acquisition = XImageMeta.parse_dict(xmp, 'acquisition')
-        setup = XImageMeta.parse_dict(xmp, 'setup')
-        classes = [ XClass.parse(xmp, 'classes[%d]' % i) for i in range(1, 1 + xmp.count_array_items(XMP_NS_ALIQUIS, 'classes')) ]
-        items = [ XItem.parse(xmp, 'items[%d]' % i) for i in range(1, 1 + xmp.count_array_items(XMP_NS_ALIQUIS, 'items')) ]
+        try:
+            tag = 'acquisition'
+            acquisition = XImageMeta.parse_dict(xmp, tag)
+            tag = 'setup'
+            setup = XImageMeta.parse_dict(xmp, tag)
+            tag = 'classes'
+            classes = [ XClass.parse(xmp, '%s[%d]' % (tag, i)) for i in range(1, 1 + xmp.count_array_items(XMP_NS_ALIQUIS, tag)) ]
+            tag = 'items'
+            items = [ XItem.parse(xmp, '%s[%d]' % (tag, i)) for i in range(1, 1 + xmp.count_array_items(XMP_NS_ALIQUIS, tag)) ]
+        except:
+            raise XImageParseError(tag), None, sys.exc_info()[2]
+
         return XImageMeta(classes, items, acquisition, setup)
 
     @staticmethod
@@ -391,6 +503,40 @@ def ximage_export(args):
     cv2.imwrite(args.mask, mask)
     return 0
 
+def ximage_update(args):
+    im_path = args.path
+    overwrite = args.overwrite
+    im_meta = XImageMeta.read(im_path)
+
+    mapping = dict([ kv.split('=') for kvs in args.mapping for kv in kvs.split() ])
+    with open(args.metadata, 'r') as f:
+        im_meta_update = XImageMeta.parse(Template(f.read()).substitute(mapping))
+
+    # TODO: add replace-classes and ignore-classes options
+
+    classes = im_meta.classes
+    classes_num = len(classes)
+    classes_update = im_meta_update.classes
+    if classes_num == 0 or (len(classes_update) >= classes_num and all([ c.name == cu.name for c, cu in zip(classes, classes_update) ])):
+        if overwrite:
+            for c, cu in zip(classes, classes_update):
+                c.color = cu.color
+        classes.extend(classes_update[classes_num:])
+
+    acquisition = im_meta.acquisition
+    for a_name, a in im_meta_update.acquisition.items():
+        if overwrite or (a_name not in acquisition):
+            acquisition[a_name] = a
+            print 'acquisition', a_name, a
+
+    setup = im_meta.setup
+    for s_name, s in im_meta_update.setup.items():
+        if overwrite or (s_name not in setup):
+            setup[s_name] = s
+            print 'setup', s_name, s
+
+    im_meta.write(im_path)
+
 def ximage_view(args):
     im_path = args.path
 
@@ -454,15 +600,28 @@ def ximage_view(args):
 
     return 0
 
+class XValue(object):
+    def __init__(self, val):
+        self.val = val
+
+    @staticmethod
+    def parse(buf):
+        return pickle.loads(str(buf))
+
+    def __str__(self):
+        return str(self.val)
+
 def _ximage_index_connect(args, create=False):
     if 'sqlite3' not in sys.modules:
         import sqlite3
 
         # Custom database types converters and adapters
+        sqlite3.register_converter('xvalue', XValue.parse)
         sqlite3.register_converter('color', lambda buf: tuple(np.frombuffer(buf, dtype='|u1').tolist()))
         sqlite3.register_converter('vector', lambda buf: np.frombuffer(buf, dtype='<f4'))
         sqlite3.register_converter('points', lambda buf: np.frombuffer(buf, dtype='<i4').reshape(len(buf) / 8, 2))
         sqlite3.register_converter('uuid', lambda buf: UUID(bytes=buf))
+        sqlite3.register_adapter(XValue, lambda x: pickle.dumps(x.val))
         sqlite3.register_adapter(np.ndarray, lambda a: np.getbuffer(a))
         sqlite3.register_adapter(UUID, lambda uuid: buffer(uuid.get_bytes()))
 
@@ -472,13 +631,15 @@ def _ximage_index_connect(args, create=False):
         with open(index_path, 'r') as f:
             pass
 
-    return sqlite3.connect(index_path, detect_types=sqlite3.PARSE_DECLTYPES)
+    conn = sqlite3.connect(index_path, detect_types=sqlite3.PARSE_DECLTYPES)
+    conn.create_function('xvalue_parse', 1, XValue.parse)
+    return conn
 
 def _ximage_index_insert_blobs(cur, blob, classes, xbelonging_id, parent_id=None):
     cid = blob.get_classid()
     c = classes[cid]
     (xclass_id,) = cur.execute('SELECT id FROM XClass WHERE classid=? AND name=? AND color=?', (cid, c.name, np.array(c.color, dtype=np.uint8))).fetchone()
-    cur.execute('INSERT OR REPLACE INTO XBlob(xbelonging_id, parent_id, xclass_id, value, area, vals, contour) VALUES(?, ?, ?, ?, ?, ?, ?)', (xbelonging_id, parent_id, xclass_id, float(blob.values[cid]), blob.get_area(), blob.values, blob.points))
+    cur.execute('INSERT OR REPLACE INTO XBlob(xbelonging_id, parent_id, xclass_id, val, area, vals, contour) VALUES(?, ?, ?, ?, ?, ?, ?)', (xbelonging_id, parent_id, xclass_id, float(blob.values[cid]), blob.get_area(), blob.values, blob.points))
     blob_id = cur.lastrowid
     for b in blob.children:
         _ximage_index_insert_blobs(cur, b, classes, xbelonging_id, blob_id)
@@ -494,7 +655,6 @@ def ximage_index(args):
     except ImportError:
         sys.stderr.write('Error: cannot import sqlite3 module\n')
         return -1
-
 
     cur = conn.cursor()
     cur.execute('SELECT * FROM sqlite_master WHERE type="table" AND name IN (%s);' % (','.join(map(repr, TABLES_SEARCH)),))
@@ -522,6 +682,17 @@ def ximage_index(args):
                     cur.execute('INSERT OR IGNORE INTO XClass(classid, name, color) VALUES(?, ?, ?)', (i, c.name, np.array(c.color, dtype=np.uint8)))
                 conn.commit()
 
+                # Update Acquisition
+
+                for name, val in im_meta.acquisition.items():
+                    cur.execute('INSERT OR IGNORE INTO XImageParam(ximage_id, param_type, name, val) VALUES(?, 0, ?, ?)', (im_id, name, XValue(val)))
+                conn.commit()
+
+                # Update Setup
+                for name, val in im_meta.setup.items():
+                    cur.execute('INSERT OR IGNORE INTO XImageParam(ximage_id, param_type, name, val) VALUES(?, 1, ?, ?)', (im_id, name, XValue(val)))
+                conn.commit()
+
                 # Insert XImage
                 cur.execute('INSERT OR REPLACE INTO XImage(id, path) VALUES(?, ?)', (im_id, im_relpath))
 
@@ -543,6 +714,134 @@ def ximage_index(args):
     return 0
 
 def ximage_query(args):
+    class XEvalContext(object):
+        def __init__(self, cur):
+            self.cur = cur
+            self.cur.execute('SELECT path FROM XImage;')
+            self.all_paths = self._fetch_all()
+            self.reset()
+
+        def push_param(self, p):
+            n = 'x%d' % (len(self.params),)
+            self.params[n] = p
+            return ':%s' % (n,)
+
+        def execute_query(self):
+            from_clause = ', '.join(self.from_tables)
+            where_clause = ' AND '.join(self.where_conjs)
+            groupby_clause = '' if len(self.having_conjs) == 0 else ' GROUP BY path HAVING %s' % (' AND '.join(self.having_conjs),)
+            query = 'SELECT path FROM %s WHERE %s%s;' % (from_clause, where_clause, groupby_clause)
+            #print query, self.params
+            self.cur.execute(query, self.params)
+            return self._fetch_all()
+
+        def reset(self):
+            self.params = {}
+            self.where_conjs = set()
+            self.from_tables = set()
+            self.having_conjs = set()
+
+        def _fetch_all(self):
+            return set([ r[0] for r in self.cur.fetchall() ])
+
+    def xeval_num(node):
+        return node.n
+
+    def xeval_str(node):
+        return node.s
+
+    def xeval_attribute(node, ctx):
+        assert type(node.value) == ast.Name
+        t = node.value.id.capitalize()
+        if t in [ 'Acquisition', 'Setup' ]:
+            ctx.from_tables.update([ 'XImage', 'XImageParam AS Acquisition', 'XImageParam AS Setup' ])
+            ctx.where_conjs.update([ 'Acquisition.param_type=0', 'Acquisition.ximage_id=XImage.id', 'Setup.param_type=1', 'Setup.ximage_id=XImage.id' ])
+            ctx.where_conjs.add('%s.name=%s' % (t, ctx.push_param(node.attr)))
+            return 'xvalue_parse(%s.val)' % (t,)
+        elif t == 'Item':
+            ctx.from_tables.update([ 'XImage', 'XBelonging', 'XBlob', 'XClass' ])
+            ctx.where_conjs.update([ 'XImage.id=XBelonging.ximage_id', 'XBlob.xbelonging_id=XBelonging.id', 'XBlob.xclass_id=XClass.id' ])
+            ctx.where_conjs.add('XClass.name=%s' % (ctx.push_param(node.attr),))
+            return '*'
+        else:
+            pass # raise
+
+    def xeval_call(node, ctx):
+        fn = node.func.id.lower()
+        if fn == 'count':
+            assert len(node.args) == 1 and type(node.args[0]) == ast.Attribute
+            return True, 'COUNT(%s)' % (xeval_attribute(node.args[0], ctx),)
+        else:
+            pass # Raise
+
+    def xeval_unaryop(node, ctx):
+        if type(node.op) == ast.Not:
+            return ctx.all_paths - xeval(node.operand, cur)
+        else:
+            pass # Raise
+
+    def xeval_boolop(node, ctx):
+        values = [ xeval(v, ctx) for v in node.values ]
+        if type(node.op) == ast.And:
+            return reduce(set.intersection, values, ctx.all_paths)
+        elif type(node.op) == ast.Or:
+            return reduce(set.union, values, set())
+        else:
+            pass # Raise
+
+    def xeval_compare(node, ctx):
+        comparators = [ node.left ] + node.comparators
+        paths = ctx.all_paths
+        for op, x, y in zip(map(type, node.ops), comparators[:-1], comparators[1:]):
+            if op == ast.Lt:
+                op_str = '<'
+            elif op == ast.LtE:
+                op_str = '<='
+            elif op == ast.Gt:
+                op_str = '>'
+            elif op == ast.GtE:
+                op_str = '>='
+            elif op == ast.Eq:
+                op_str = '='
+            elif op == ast.NotEq:
+                op_str = '<>'
+            else:
+                pass # raise
+
+            comps = [ '', '' ]
+            conjs = ctx.where_conjs
+            for i, z in enumerate([ x, y ]):
+                if type(z) == ast.Call:
+                    h, comps[i] = xeval_call(z, ctx)
+                    if h:
+                        conjs = ctx.having_conjs
+                elif type(z) == ast.Attribute:
+                    comps[i] = xeval_attribute(z, ctx)
+                elif type(z) == ast.Str:
+                    comps[i] = ctx.push_param(xeval_str(z))
+                elif type(z) == ast.Num:
+                    comps[i] = ctx.push_param(xeval_num(z))
+                else:
+                    pass # raise
+            conjs.add('%s%s%s' % (comps[0], op_str, comps[1]))
+
+            #
+            paths = paths.intersection(ctx.execute_query())
+            ctx.reset()
+            if len(paths) == 0:
+                break
+        return paths
+
+    def xeval(node, ctx):
+        if type(node) == ast.UnaryOp:
+            return xeval_unaryop(node, ctx)
+        elif type(node) == ast.BoolOp:
+            return xeval_boolop(node, ctx)
+        elif type(node) == ast.Compare:
+            return xeval_compare(node, ctx)
+        else:
+            pass # raise
+
     try:
         conn = _ximage_index_connect(args)
     except IOError as e:
@@ -552,20 +851,14 @@ def ximage_query(args):
         sys.stderr.write('Error: cannot import sqlite3 module\n')
         return -1
 
-    tokens_rev = { getattr(token, n): n for n in dir(token) if n == n.upper() }
-
-    from pprint import pprint
-    pprint([ (tokens_rev[x[0]],) + x[1:] for x in generate_tokens(StringIO(args.query).readline) ])
+    root = ast.parse(args.query, '<query>', 'eval')
+    paths = xeval(root.body, XEvalContext(conn.cursor()))
+    print '\n'.join(sorted(paths))
     return 0
 
 def ximage_main(prog_name='ximage'):
     parser = argparse.ArgumentParser(prog=prog_name, description='Manipulate images along with its metadata')
     subparsers = parser.add_subparsers(help='sub-commands help')
-
-    parser_view = subparsers.add_parser('view', help='View images, blobs and other metadata')
-    parser_view.add_argument('-m', '--metadata', type=str, required=False, default=None, help='Use this XML instead of image\'s XMP')
-    parser_view.add_argument('path', type=str, help='Image path')
-    parser_view.set_defaults(func=ximage_view)
 
     parser_import = subparsers.add_parser('import', help='Add blobs and metadata to an image, importing index mask')
     parser_import.add_argument('-K', '--classes', type=str, required=False, nargs='+', default=[], help='List of classes, 0-indexed')
@@ -589,10 +882,22 @@ def ximage_main(prog_name='ximage'):
     parser_extract.add_argument('path', type=str, help='Image path')
     parser_extract.set_defaults(func=ximage_extract)
 
+    parser_update = subparsers.add_parser('update', help='Update image metadata with XML')
+    parser_update.add_argument('-f', '--overwrite', type=bool, required=False, default=False, help='Overwrite present values (default: no)')
+    parser_update.add_argument('metadata', type=str, help='Metadata to update with')
+    parser_update.add_argument('path', type=str, help='Image path')
+    parser_update.add_argument('mapping', nargs=argparse.REMAINDER)
+    parser_update.set_defaults(func=ximage_update)
+
     parser_uuid = subparsers.add_parser('uuid', help='Get/set items UUIDs (left to right, top to bottom)')
     parser_uuid.add_argument('-U', '--uuids', type=str, required=False, nargs='+', default=[], help='List of new UUIDs (0 to skip)')
     parser_uuid.add_argument('path', type=str, help='Image path')
     parser_uuid.set_defaults(func=ximage_uuid)
+
+    parser_view = subparsers.add_parser('view', help='View images, blobs and other metadata')
+    parser_view.add_argument('-m', '--metadata', type=str, required=False, default=None, help='Use this XML instead of image\'s XMP')
+    parser_view.add_argument('path', type=str, help='Image path')
+    parser_view.set_defaults(func=ximage_view)
 
     parser_index = subparsers.add_parser('index', help='Index a directory (recursively) of XImages')
     parser_index.add_argument('root', type=str, help='Root directory path')
@@ -750,99 +1055,3 @@ _COLORS = dict(
     whitesmoke=(0xf5, 0xf5, 0xf5),
     white=(0xff, 0xff, 0xff)
 )
-
-_XIMAGE_INDEX_CREATE_SCHEMA = """
--- Parse::SQL::Dia       version 0.27
--- Documentation         http://search.cpan.org/dist/Parse-Dia-SQL/
--- Environment           Perl 5.018002, /usr/bin/perl
--- Architecture          x86_64-linux-gnu-thread-multi
--- Target Database       sqlite3fk
--- Input file            ximage_schema.dia
--- Generated at          Wed Sep  6 14:43:18 2017
--- Typemap for sqlite3fk not found in input file
-
--- get_constraints_drop
-drop index if exists idx_xccnc;
-drop index if exists idx_ximxit;
-
--- get_permissions_drop
-
--- get_view_drop
-
--- get_schema_drop
-drop table if exists XBlob;
-drop table if exists XItem;
-drop table if exists XImage;
-drop table if exists XClass;
-drop table if exists XImageParam;
-drop table if exists XBelonging;
-
--- get_smallpackage_pre_sql
-
--- get_schema_create
-
-create table XBlob (
-   id            integer not null,
-   xbelonging_id integer not null,
-   parent_id     integer null    ,
-   xclass_id     integer not null,
-   value         real    not null,
-   area          real    not null,
-   vals          vector  not null,
-   contour       points  not null,
-   constraint pk_XBlob primary key (id),
-   foreign key(xclass_id) references XClass(id) ,
-   foreign key(parent_id) references XBlob(id) ,
-   foreign key(xbelonging_id) references XBelonging(id)
-)   ;
-
-create table XItem (
-   id uuid not null,
-   constraint pk_XItem primary key (id)
-)   ;
-
-create table XImage (
-   id   uuid not null,
-   path text not null,
-   constraint pk_XImage primary key (id)
-)   ;
-
-create table XClass (
-   id      integer not null,
-   classid integer not null,
-   name    string  not null,
-   color   color   not null,
-   constraint pk_XClass primary key (id)
-)   ;
-
-create table XImageParam (
-   ximage_id  uuid    not null,
-   name       text    not null,
-   param_type integer not null,
-   type       text    not null,
-   value      text    not null,
-   constraint pk_XImageParam primary key (ximage_id,name,param_type),
-   foreign key(ximage_id) references XImage(id)
-)   ;
-
-create table XBelonging (
-   id        integer not null,
-   ximage_id uuid    not null,
-   xitem_id  uuid    not null,
-   constraint pk_XBelonging primary key (id),
-   foreign key(ximage_id) references XImage(id) ,
-   foreign key(xitem_id) references XItem(id)
-)   ;
-
--- get_view_create
-
--- get_permissions_create
-
--- get_inserts
-
--- get_smallpackage_post_sql
-
--- get_associations_create
-create unique index idx_xccnc on XClass (classid,name,color) ;
-create unique index idx_ximxit on XBelonging (ximage_id,xitem_id) ;
-"""

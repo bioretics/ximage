@@ -1,0 +1,74 @@
+<?xml version="1.0"?>
+<x:xmpmeta xmlns:x="adobe:ns:meta/" x:xmptk="Exempi + XMP Core 5.1.2">
+  <rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
+    <rdf:Description xmlns:aliquis="http://bioretics.com/aliquis" rdf:about="">
+      <aliquis:acquisition>
+        <rdf:Bag>
+          <rdf:li rdf:parseType="Resource">
+            <aliquis:name>date</aliquis:name>
+            <aliquis:type>datetime</aliquis:type>
+            <aliquis:value>${DATE}</aliquis:value>
+          </rdf:li>
+          <rdf:li rdf:parseType="Resource">
+            <aliquis:name>id</aliquis:name>
+            <aliquis:type>integer</aliquis:type>
+            <aliquis:value>${ID}</aliquis:value>
+          </rdf:li>
+        </rdf:Bag>
+      </aliquis:acquisition>
+      <aliquis:setup>
+        <rdf:Bag>
+          <rdf:li rdf:parseType="Resource">
+            <aliquis:name>roi_h</aliquis:name>
+            <aliquis:type>integer</aliquis:type>
+            <aliquis:value>500</aliquis:value>
+          </rdf:li>
+          <rdf:li rdf:parseType="Resource">
+            <aliquis:name>white_point_b</aliquis:name>
+            <aliquis:type>float</aliquis:type>
+            <aliquis:value>1.56</aliquis:value>
+          </rdf:li>
+          <rdf:li rdf:parseType="Resource">
+            <aliquis:name>white_point_g</aliquis:name>
+            <aliquis:type>float</aliquis:type>
+            <aliquis:value>1.0</aliquis:value>
+          </rdf:li>
+          <rdf:li rdf:parseType="Resource">
+            <aliquis:name>px_per_mm</aliquis:name>
+            <aliquis:type>float</aliquis:type>
+            <aliquis:value>13.0</aliquis:value>
+          </rdf:li>
+          <rdf:li rdf:parseType="Resource">
+            <aliquis:name>camera_serial</aliquis:name>
+            <aliquis:type>integer</aliquis:type>
+            <aliquis:value>16671051</aliquis:value>
+          </rdf:li>
+          <rdf:li rdf:parseType="Resource">
+            <aliquis:name>roi_x</aliquis:name>
+            <aliquis:type>integer</aliquis:type>
+            <aliquis:value>12</aliquis:value>
+          </rdf:li>
+          <rdf:li rdf:parseType="Resource">
+            <aliquis:name>roi_y</aliquis:name>
+            <aliquis:type>integer</aliquis:type>
+            <aliquis:value>240</aliquis:value>
+          </rdf:li>
+          <rdf:li rdf:parseType="Resource">
+            <aliquis:name>roi_w</aliquis:name>
+            <aliquis:type>integer</aliquis:type>
+            <aliquis:value>2016</aliquis:value>
+          </rdf:li>
+          <rdf:li rdf:parseType="Resource">
+            <aliquis:name>white_point_r</aliquis:name>
+            <aliquis:type>float</aliquis:type>
+            <aliquis:value>1.25</aliquis:value>
+          </rdf:li>
+        </rdf:Bag>
+      </aliquis:setup>
+      <aliquis:classes><rdf:Seq/></aliquis:classes>
+      <aliquis:items>
+        <rdf:Bag/>
+      </aliquis:items>
+    </rdf:Description>
+  </rdf:RDF>
+</x:xmpmeta>
