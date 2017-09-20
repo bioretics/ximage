@@ -434,13 +434,11 @@ def ximage_update(args):
     for a_name, a in im_meta_update.acquisition.items():
         if overwrite or (a_name not in acquisition):
             acquisition[a_name] = a
-            print 'acquisition', a_name, a
 
     setup = im_meta.setup
     for s_name, s in im_meta_update.setup.items():
         if overwrite or (s_name not in setup):
             setup[s_name] = s
-            print 'setup', s_name, s
 
     im_meta.write(im_path)
 
@@ -758,8 +756,12 @@ def ximage_query(args):
         sys.stderr.write('Error: cannot import sqlite3 module\n')
         return -1
 
-    root = ast.parse(args.query, '<query>', 'eval')
-    paths = xeval(root.body, XEvalContext(conn.cursor()))
+    query = ' '.join(args.query)
+    if query is None or len(query.strip()) == 0:
+        paths = XEvalContext(conn.cursor()).all_paths
+    else:
+        root = ast.parse(query, '<query>', 'eval')
+        paths = xeval(root.body, XEvalContext(conn.cursor()))
     print '\n'.join(sorted(paths))
     return 0
 
@@ -812,7 +814,7 @@ def ximage_main(prog_name='ximage'):
 
     parser_query = subparsers.add_parser('query', help='Query on indexed directory of XImages')
     parser_query.add_argument('-D', '--root', type=str, required=False, default=os.getcwd(), help='Root directory path (default: cwd)')
-    parser_query.add_argument('query', type=str, help='Query')
+    parser_query.add_argument('query', nargs=argparse.REMAINDER)
     parser_query.set_defaults(func=ximage_query)
 
     args = parser.parse_args()
