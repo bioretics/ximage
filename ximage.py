@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 
-import os, sys, argparse, cv2, ast
 import numpy as np
+import os, sys, argparse, cv2, ast
 from libxmp import XMPFiles, XMPMeta, XMPError, consts
 from uuid import uuid4, UUID
 from hashlib import sha1
@@ -14,102 +14,6 @@ XMP_NS_ALIQUIS = 'http://bioretics.com/aliquis'
 XMPMeta.register_namespace(XMP_NS_ALIQUIS, 'aliquis')
 
 __all__ = [ 'XImageMeta', 'XItem', 'XClass', 'XBlob', 'XImageParseError', 'XImageEmptyXMPError', 'ximread', 'ximwrite', 'ximage_main' ]
-
-_XIMAGE_INDEX_CREATE_SCHEMA = """
--- Parse::SQL::Dia       version 0.27
--- Documentation         http://search.cpan.org/dist/Parse-Dia-SQL/
--- Environment           Perl 5.018002, /usr/bin/perl
--- Architecture          x86_64-linux-gnu-thread-multi
--- Target Database       sqlite3fk
--- Input file            ximage_schema.dia
--- Generated at          Tue Sep 19 16:21:30 2017
--- Typemap for sqlite3fk not found in input file
-
--- get_constraints_drop
-drop index if exists idx_xccnc;
-drop index if exists idx_ximxit;
-
--- get_permissions_drop
-
--- get_view_drop
-
--- get_schema_drop
-drop table if exists XBlob;
-drop table if exists XItem;
-drop table if exists XImage;
-drop table if exists XClass;
-drop table if exists XImageParam;
-drop table if exists XBelonging;
-
--- get_smallpackage_pre_sql
-
--- get_schema_create
-
-create table XBlob (
-   id            integer not null,
-   xbelonging_id integer not null,
-   parent_id     integer null    ,
-   xclass_id     integer not null,
-   val           real    not null,
-   area          real    not null,
-   vals          vector  not null,
-   contour       points  not null,
-   constraint pk_XBlob primary key (id),
-   foreign key(xclass_id) references XClass(id) ,
-   foreign key(parent_id) references XBlob(id) ,
-   foreign key(xbelonging_id) references XBelonging(id)
-)   ;
-
-create table XItem (
-   id uuid not null,
-   constraint pk_XItem primary key (id)
-)   ;
-
-create table XImage (
-   id   uuid not null,
-   path text not null,
-   constraint pk_XImage primary key (id)
-)   ;
-
-create table XClass (
-   id      integer not null,
-   classid integer not null,
-   name    string  not null,
-   color   color   not null,
-   constraint pk_XClass primary key (id)
-)   ;
-
-create table XImageParam (
-   ximage_id  uuid    not null,
-   param_type integer not null,
-   name       text    not null,
-   val        xvalue  not null,
-   constraint pk_XImageParam primary key (ximage_id,param_type,name),
-   foreign key(ximage_id) references XImage(id)
-)   ;
-
-create table XBelonging (
-   id        integer not null,
-   ximage_id uuid    not null,
-   xitem_id  uuid    not null,
-   constraint pk_XBelonging primary key (id),
-   foreign key(ximage_id) references XImage(id) ,
-   foreign key(xitem_id) references XItem(id)
-)   ;
-
--- get_view_create
-
--- get_permissions_create
-
--- get_inserts
-
--- get_smallpackage_post_sql
-
--- get_associations_create
-create unique index idx_xccnc on XClass (classid,name,color) ;
-create unique index idx_ximxit on XBelonging (ximage_id,xitem_id) ;
-"""
-
 
 class XImageEmptyXMPError(Exception):
     def __init__(self, file_path):
@@ -277,7 +181,7 @@ class XClass(object):
 
     @staticmethod
     def get_random_color():
-        return tuple(np.random.randint(0, 256, 3, dtype=np.uint8).tolist())
+        return tuple(np.random.randint(0, 256, 3).tolist())
 
     @staticmethod
     def parse(xmp, prefix):
@@ -453,7 +357,8 @@ def ximage_import(args):
     default_value = versor(default_class, classes_num)
 
     #
-    _, contours, _ = cv2.findContours(np.pad(mask != 255, 1, 'constant', constant_values=0).astype(np.uint8), cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_NONE)
+    ret = cv2.findContours(np.pad(mask != 255, 1, 'constant', constant_values=0).astype(np.uint8), cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_NONE)
+    contours = ret[-2]
 
     #
     items = [ XItem([ XBlob(contour.squeeze(1) - 1, default_value) ]) for contour in contours ]
@@ -470,7 +375,9 @@ def ximage_import(args):
             if c == default_class:
                 continue
 
-            _, contours, hier = cv2.findContours((item_indexmask == c).astype(np.uint8), cv2.RETR_TREE, cv2.CHAIN_APPROX_NONE)
+            ret = cv2.findContours((item_indexmask == c).astype(np.uint8), cv2.RETR_TREE, cv2.CHAIN_APPROX_NONE)
+            contours = ret[-2]
+            hier = ret[-1]
 
             # Blobs are only even levels (contours hierarchy alternate full and empty areas)
             blobs = blobs.union(set([ XBlob(contour.squeeze(1), versor(c, classes_num)) for i, contour in enumerate(contours) if contour_level(hier[0], i) % 2 == 0 ]))
@@ -911,9 +818,6 @@ def ximage_main(prog_name='ximage'):
     args = parser.parse_args()
     sys.exit(args.func(args))
 
-if __name__ == '__main__':
-    ximage_main()
-
 _COLORS = dict(
     maroon=(0x00, 0x00, 0x80),
     darkred=(0x00, 0x00, 0x8b),
@@ -1055,3 +959,101 @@ _COLORS = dict(
     whitesmoke=(0xf5, 0xf5, 0xf5),
     white=(0xff, 0xff, 0xff)
 )
+
+_XIMAGE_INDEX_CREATE_SCHEMA = """
+-- Parse::SQL::Dia       version 0.27
+-- Documentation         http://search.cpan.org/dist/Parse-Dia-SQL/
+-- Environment           Perl 5.018002, /usr/bin/perl
+-- Architecture          x86_64-linux-gnu-thread-multi
+-- Target Database       sqlite3fk
+-- Input file            ximage_schema.dia
+-- Generated at          Tue Sep 19 16:21:30 2017
+-- Typemap for sqlite3fk not found in input file
+
+-- get_constraints_drop
+drop index if exists idx_xccnc;
+drop index if exists idx_ximxit;
+
+-- get_permissions_drop
+
+-- get_view_drop
+
+-- get_schema_drop
+drop table if exists XBlob;
+drop table if exists XItem;
+drop table if exists XImage;
+drop table if exists XClass;
+drop table if exists XImageParam;
+drop table if exists XBelonging;
+
+-- get_smallpackage_pre_sql
+
+-- get_schema_create
+
+create table XBlob (
+   id            integer not null,
+   xbelonging_id integer not null,
+   parent_id     integer null    ,
+   xclass_id     integer not null,
+   val           real    not null,
+   area          real    not null,
+   vals          vector  not null,
+   contour       points  not null,
+   constraint pk_XBlob primary key (id),
+   foreign key(xclass_id) references XClass(id) ,
+   foreign key(parent_id) references XBlob(id) ,
+   foreign key(xbelonging_id) references XBelonging(id)
+)   ;
+
+create table XItem (
+   id uuid not null,
+   constraint pk_XItem primary key (id)
+)   ;
+
+create table XImage (
+   id   uuid not null,
+   path text not null,
+   constraint pk_XImage primary key (id)
+)   ;
+
+create table XClass (
+   id      integer not null,
+   classid integer not null,
+   name    string  not null,
+   color   color   not null,
+   constraint pk_XClass primary key (id)
+)   ;
+
+create table XImageParam (
+   ximage_id  uuid    not null,
+   param_type integer not null,
+   name       text    not null,
+   val        xvalue  not null,
+   constraint pk_XImageParam primary key (ximage_id,param_type,name),
+   foreign key(ximage_id) references XImage(id)
+)   ;
+
+create table XBelonging (
+   id        integer not null,
+   ximage_id uuid    not null,
+   xitem_id  uuid    not null,
+   constraint pk_XBelonging primary key (id),
+   foreign key(ximage_id) references XImage(id) ,
+   foreign key(xitem_id) references XItem(id)
+)   ;
+
+-- get_view_create
+
+-- get_permissions_create
+
+-- get_inserts
+
+-- get_smallpackage_post_sql
+
+-- get_associations_create
+create unique index idx_xccnc on XClass (classid,name,color) ;
+create unique index idx_ximxit on XBelonging (ximage_id,xitem_id) ;
+"""
+
+if __name__ == '__main__':
+    ximage_main()
