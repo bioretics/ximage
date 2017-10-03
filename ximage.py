@@ -1,5 +1,6 @@
 #!/usr/bin/env python
 
+from __future__ import print_function
 import numpy as np
 import os, sys, argparse, cv2, ast
 from libxmp import XMPFiles, XMPMeta, XMPError, consts
@@ -14,6 +15,16 @@ XMP_NS_ALIQUIS = 'http://bioretics.com/aliquis'
 XMPMeta.register_namespace(XMP_NS_ALIQUIS, 'aliquis')
 
 __all__ = [ 'XImageMeta', 'XItem', 'XClass', 'XBlob', 'XImageParseError', 'XImageEmptyXMPError', 'ximread', 'ximwrite', 'ximage_main' ]
+
+if sys.version_info[0] == 3:
+    def raise_(tp, value, tb=None):
+        if value is None:
+            value = tp()
+        if value.__traceback__ is not tb:
+            raise value.with_traceback(tb)
+        raise value
+else:
+    exec('def raise_(tp, value, tb=None):\n    raise tp, value, tb\n')
 
 class XImageEmptyXMPError(Exception):
     def __init__(self, file_path):
@@ -88,7 +99,7 @@ class XImageMeta(object):
             tag = 'items'
             items = [ XItem.parse(xmp, '%s[%d]' % (tag, i)) for i in range(1, 1 + xmp.count_array_items(XMP_NS_ALIQUIS, tag)) ]
         except:
-            raise XImageParseError(tag), None, sys.exc_info()[2]
+            raise_(XImageParseError(tag), None, sys.exc_info()[2])
 
         return XImageMeta(classes, items, acquisition, setup)
 
@@ -279,7 +290,7 @@ def ximage_inject(args):
     return 0
 
 def ximage_extract(args):
-    print str(XImageMeta.read(args.path))
+    print(str(XImageMeta.read(args.path)))
     return 0
 
 def ximage_uuid(args):
@@ -287,7 +298,7 @@ def ximage_uuid(args):
     sorted_items = sorted(meta.items, key=lambda item: np.vstack([ b.points for b in item.blobs ]).mean(axis=0).round().astype(int))
     if len(args.uuids) == 0:
         for item in sorted_items:
-            print str(item.uuid)
+            print(str(item.uuid))
     else:
         assert len(args.uuids) == len(sorted_items), 'UUIDs must be %d' % (len(sorted_items),)
         for uuid, item in zip(args.uuids, sorted_items):
@@ -762,7 +773,7 @@ def ximage_query(args):
     else:
         root = ast.parse(query, '<query>', 'eval')
         paths = xeval(root.body, XEvalContext(conn.cursor()))
-    print '\n'.join(sorted(paths))
+    print('\n'.join(sorted(paths)))
     return 0
 
 def ximage_main(prog_name='ximage'):
