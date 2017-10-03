@@ -17,14 +17,12 @@ XMPMeta.register_namespace(XMP_NS_ALIQUIS, 'aliquis')
 __all__ = [ 'XImageMeta', 'XItem', 'XClass', 'XBlob', 'XImageParseError', 'XImageEmptyXMPError', 'ximread', 'ximwrite', 'ximage_main' ]
 
 if sys.version_info[0] == 3:
-    def raise_(tp, value, tb=None):
-        if value is None:
-            value = tp()
-        if value.__traceback__ is not tb:
-            raise value.with_traceback(tb)
-        raise value
+    def raise_(exc, tb=None):
+        if exc.__traceback__ is not tb:
+            raise exc.with_traceback(tb)
+        raise exc
 else:
-    exec('def raise_(tp, value, tb=None):\n    raise tp, value, tb\n')
+    exec('def raise_(exc, tb=None):\n    raise exc, None, tb\n')
 
 class XImageEmptyXMPError(Exception):
     def __init__(self, file_path):
@@ -99,7 +97,7 @@ class XImageMeta(object):
             tag = 'items'
             items = [ XItem.parse(xmp, '%s[%d]' % (tag, i)) for i in range(1, 1 + xmp.count_array_items(XMP_NS_ALIQUIS, tag)) ]
         except:
-            raise_(XImageParseError(tag), None, sys.exc_info()[2])
+            raise_(XImageParseError(tag), sys.exc_info()[2])
 
         return XImageMeta(classes, items, acquisition, setup)
 
@@ -253,8 +251,8 @@ class XBlob(object):
 
     @staticmethod
     def parse(xmp, prefix):
-        points = np.int32(map(int, xmp.get_property(XMP_NS_ALIQUIS, '%s/aliquis:points' % prefix).split(',')))
-        values = np.float32(map(float, xmp.get_property(XMP_NS_ALIQUIS, '%s/aliquis:values' % prefix).split(',')))
+        points = np.int32(list(map(int, xmp.get_property(XMP_NS_ALIQUIS, '%s/aliquis:points' % prefix).split(','))))
+        values = np.float32(list(map(float, xmp.get_property(XMP_NS_ALIQUIS, '%s/aliquis:values' % prefix).split(','))))
 
         if xmp.does_property_exist(XMP_NS_ALIQUIS, '%s/aliquis:blobs' % prefix):
             children = [ XBlob.parse(xmp, '%s/aliquis:blobs[%d]' % (prefix, i)) for i in range(1, 1 + xmp.count_array_items(XMP_NS_ALIQUIS, '%s/aliquis:blobs' % prefix)) ]
@@ -349,7 +347,7 @@ def ximage_import(args):
     # Count number of classes
     classes_count = len(np.trim_zeros(np.bincount(mask.flatten())[:-1], 'b')) - 1
     if len(args.classes) > 0:
-        classes = map(XClass, args.classes)
+        classes = list(map(XClass, args.classes))
     else:
         classes = [ XClass(str(i)) for i in range(classes_count) ]
     classes_num = len(classes)
