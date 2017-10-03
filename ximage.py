@@ -8,7 +8,7 @@ from uuid import uuid4, UUID
 from hashlib import sha1
 from datetime import datetime
 from string import Template
-import cPickle as pickle
+import pickle
 
 XMP_NS_ALIQUIS = 'http://bioretics.com/aliquis'
 
