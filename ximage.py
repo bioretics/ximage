@@ -3,7 +3,7 @@
 from __future__ import print_function
 import numpy as np
 import os, sys, argparse, cv2, ast
-from libxmp import XMPFiles, XMPMeta, XMPError, consts
+from libxmp import XMPFiles, XMPMeta, XMPError, XMPIterator, consts
 from uuid import uuid4, UUID
 from hashlib import sha1
 from datetime import datetime
@@ -88,14 +88,15 @@ class XImageMeta(object):
             xmp = xmp_or_str
 
         try:
+            attribs = set([ x[1][8:] for x in XMPIterator(xmp, XMP_NS_ALIQUIS) if x[1].startswith('aliquis:') ])
             tag = 'acquisition'
-            acquisition = XImageMeta.parse_dict(xmp, tag)
+            acquisition = XImageMeta.parse_dict(xmp, tag) if '%s[1]' % (tag,) in attribs else {}
             tag = 'setup'
-            setup = XImageMeta.parse_dict(xmp, tag)
+            setup = XImageMeta.parse_dict(xmp, tag) if '%s[1]' % (tag,) in attribs else {}
             tag = 'classes'
-            classes = [ XClass.parse(xmp, '%s[%d]' % (tag, i)) for i in range(1, 1 + xmp.count_array_items(XMP_NS_ALIQUIS, tag)) ]
+            classes = [ XClass.parse(xmp, '%s[%d]' % (tag, i)) for i in range(1, 1 + xmp.count_array_items(XMP_NS_ALIQUIS, tag)) ] if '%s[1]' % (tag,) in attribs else []
             tag = 'items'
-            items = [ XItem.parse(xmp, '%s[%d]' % (tag, i)) for i in range(1, 1 + xmp.count_array_items(XMP_NS_ALIQUIS, tag)) ]
+            items = [ XItem.parse(xmp, '%s[%d]' % (tag, i)) for i in range(1, 1 + xmp.count_array_items(XMP_NS_ALIQUIS, tag)) ] if '%s[1]' % (tag,) in attribs else []
         except:
             raise_(XImageParseError(tag), sys.exc_info()[2])
 
@@ -428,16 +429,17 @@ def ximage_update(args):
     with open(args.metadata, 'r') as f:
         im_meta_update = XImageMeta.parse(Template(f.read()).substitute(mapping))
 
-    # TODO: add replace-classes and ignore-classes options
-
-    classes = im_meta.classes
-    classes_num = len(classes)
-    classes_update = im_meta_update.classes
-    if classes_num == 0 or (len(classes_update) >= classes_num and all([ c.name == cu.name for c, cu in zip(classes, classes_update) ])):
-        if overwrite:
-            for c, cu in zip(classes, classes_update):
-                c.color = cu.color
-        classes.extend(classes_update[classes_num:])
+    if args.replace_classes:
+        im_meta.classes = im_meta_update.classes
+    else:
+        classes = im_meta.classes
+        classes_num = len(classes)
+        classes_update = im_meta_update.classes
+        if classes_num == 0 or (len(classes_update) >= classes_num and all([ c.name == cu.name for c, cu in zip(classes, classes_update) ])):
+            if overwrite:
+                for c, cu in zip(classes, classes_update):
+                    c.color = cu.color
+            classes.extend(classes_update[classes_num:])
 
     acquisition = im_meta.acquisition
     for a_name, a in im_meta_update.acquisition.items():
@@ -801,7 +803,8 @@ def ximage_main(prog_name='ximage'):
     parser_extract.set_defaults(func=ximage_extract)
 
     parser_update = subparsers.add_parser('update', help='Update image metadata with XML')
-    parser_update.add_argument('-f', '--overwrite', type=bool, required=False, default=False, help='Overwrite present values (default: no)')
+    parser_update.add_argument('-f', '--overwrite', action='store_true', required=False, default=False, help='Overwrite present values (default: no)')
+    parser_update.add_argument('-K', '--replace-classes', action='store_true', required=False, default=False, help='Overwrite all defined classes (default: no)')
     parser_update.add_argument('metadata', type=str, help='Metadata to update with')
     parser_update.add_argument('path', type=str, help='Image path')
     parser_update.add_argument('mapping', nargs=argparse.REMAINDER)
