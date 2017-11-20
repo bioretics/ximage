@@ -327,6 +327,9 @@ def ximage_import(args):
         subblobs = []
         blob_mask, blob_area = blobs_data[blob]
         for b in blobs - set([ blob ]):
+            if blobs_data[b][1] >= blob_area:
+                continue
+
             overlap_ratio = np.count_nonzero(blobs_data[b][0] * blob_mask) / blob_area
             if overlap_ratio >= overlap_ratio_threshold:
                 subblobs.append(b)
