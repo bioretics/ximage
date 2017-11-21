@@ -327,24 +327,27 @@ def ximage_import(args):
         subblobs = []
         blob_mask, blob_area = blobs_data[blob]
         for b in blobs - set([ blob ]):
-            if blobs_data[b][1] >= blob_area:
-                continue
-
-            overlap_ratio = np.count_nonzero(blobs_data[b][0] * blob_mask) / blob_area
-            if overlap_ratio >= overlap_ratio_threshold:
+            #if 1 - np.count_nonzero(blobs_data[b][0] * blob_mask != blobs_data[b][0]) / blobs_data[b][1] >= overlap_ratio_threshold:
+            if np.all(blobs_data[b][0] * blob_mask == blobs_data[b][0]):
                 subblobs.append(b)
         return set(subblobs)
 
-    def build_hierarchy(blobs_parents, parent):
+    def blob_descendents(blobs_subblobs, blob):
+        descendents = subblobs = blobs_subblobs[blob]
+        for b in subblobs:
+            descendents = descendents.union(blob_descendents(blobs_subblobs, b))
+        return descendents
+
+    def build_hierarchy(blobs_children, parent):
         # Find and remove roots from graph edges
-        roots = set(blobs_parents.keys()) - set([ x for xs in blobs_parents.values() for x in xs ])
+        roots = set(blobs_children.keys()) - set([ x for xs in blobs_children.values() for x in xs ])
         for root in roots:
-            blobs_parents.pop(root)
+            blobs_children.pop(root)
 
         # Recursive step
         for root in roots:
             parent.children.append(root)
-            build_hierarchy(blobs_parents, root)
+            build_hierarchy(blobs_children, root)
 
     mask = cv2.imread(args.mask, -1)
 
@@ -399,10 +402,15 @@ def ximage_import(args):
         blobs_data = { b: blob_init_data(b, mask) for b in blobs }
 
         # b: [ blobs contained in b ]
-        blobs_parents = { b: all_subblobs(b, blobs, blobs_data, overlap_ratio_threshold) for b in blobs }
+        blobs_subblobs = { b: all_subblobs(b, blobs, blobs_data, overlap_ratio_threshold) for b in blobs }
+
+        # b: [ b's children ]
+        blobs_children = { b: subblobs - reduce(set.union, [ blob_descendents(blobs_subblobs, x) for x in subblobs ], set()) for b, subblobs in blobs_subblobs.items() }
 
         # Reconstruct blobs hierarchy for the item
-        build_hierarchy(blobs_parents, item_blob)
+        item_blob.children = list(blobs - reduce(set.union, blobs_children.values(), set()))
+        for blob in blobs:
+            blob.children = list(blobs_children[blob])
 
     for item, uuid in zip(items, args.uuids):
         if uuid == '0':
