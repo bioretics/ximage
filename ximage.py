@@ -698,6 +698,14 @@ def ximage_query(args):
         if fn == 'count':
             assert len(node.args) == 1 and type(node.args[0]) == ast.Attribute
             return True, 'COUNT(%s)' % (xeval_attribute(node.args[0], ctx),)
+        elif fn == 'area':
+            assert len(node.args) == 1 and type(node.args[0]) == ast.Attribute
+            xeval_attribute(node.args[0], ctx)
+            return True, 'XBlob.area'
+        elif fn == 'areas':
+            assert len(node.args) == 1 and type(node.args[0]) == ast.Attribute
+            xeval_attribute(node.args[0], ctx)
+            return True, 'SUM(XBlob.area)'
         else:
             pass # Raise
 
