@@ -202,6 +202,9 @@ class XClass(object):
         #    color = None
         return XClass(name, color)
 
+    def __eq__(self, other):
+        return self.name == other.name and self.color == other.color
+
     def __str__(self):
         return XClass.XMP_TEMPLATE % { 'name': str(self.name), 'color': ','.join(map(str, self.color)) }
 
