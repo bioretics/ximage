@@ -110,7 +110,7 @@ class XImageMeta(object):
 
         y = xmp.get_property(XMP_NS_ALIQUIS, '%s/aliquis:value' % prefix)
         if t.startswith('bool'):
-            y = bool(y)
+            y = bool(int(y))
         elif t.startswith('int'):
             y = int(y)
         elif t.startswith('float'):
