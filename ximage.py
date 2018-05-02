@@ -297,7 +297,7 @@ def ximage_extract(args):
 
 def ximage_uuid(args):
     meta = XImageMeta.read(args.path)
-    sorted_items = sorted(meta.items, key=lambda item: np.vstack([ b.points for b in item.blobs ]).mean(axis=0).round().astype(int))
+    sorted_items = sorted(meta.items, key=lambda item: np.vstack([ b.points for b in item.blobs ]).mean(axis=0).round().astype(int).tolist())
     if len(args.uuids) == 0:
         for item in sorted_items:
             print(str(item.uuid))
