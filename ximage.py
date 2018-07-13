@@ -185,9 +185,10 @@ class XItem(object):
 class XClass(object):
     XMP_TEMPLATE = '<aliquis:name>%(name)s</aliquis:name><aliquis:color>%(color)s</aliquis:color>'
 
-    def __init__(self, name, color=None):
+    def __init__(self, name, color=None, remap=None):
         self.name = name
         self.color = color or XClass.get_random_color()
+        self.remap = remap
 
     @staticmethod
     def get_random_color():
@@ -200,13 +201,22 @@ class XClass(object):
         color = tuple(map(int, xmp.get_property(XMP_NS_ALIQUIS, '%s/aliquis:color' % prefix).split(',')))
         #except:
         #    color = None
-        return XClass(name, color)
+
+        try:
+            remap = int(xmp.get_property(XMP_NS_ALIQUIS, '%s/aliquis:remap' % prefix))
+        except:
+            remap = None
+
+        return XClass(name, color, remap)
 
     def __eq__(self, other):
-        return self.name == other.name and self.color == other.color
+        return self.name == other.name and self.color == other.color and self.remap == other.remap
 
     def __str__(self):
-        return XClass.XMP_TEMPLATE % { 'name': str(self.name), 'color': ','.join(map(str, self.color)) }
+        s = XClass.XMP_TEMPLATE % { 'name': str(self.name), 'color': ','.join(map(str, self.color)) }
+        if self.remap is not None:
+            s += '<aliquis:remap>%d</aliquis:remap>' % self.remap
+        return s
 
 class XBlob(object):
     XMP_TEMPLATE = '<aliquis:values>%(values)s</aliquis:values><aliquis:points>%(points)s</aliquis:points>%(blobs)s'
@@ -426,7 +436,7 @@ def ximage_import(args):
 
 def ximage_export(args):
     im, im_meta = ximread(args.path)
-    colormap = { i: (i,) for i in range(len(im_meta.classes)) }
+    colormap = { i: (i if c.remap is None else c.remap,) for i, c in enumerate(im_meta.classes) }
     mask = np.full(im.shape[:2], 255, dtype=np.uint8)
     for item in im_meta.items:
         for blob in item.blobs:
