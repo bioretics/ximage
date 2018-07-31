@@ -81,7 +81,7 @@ class XImageMeta(object):
 
     @staticmethod
     def parse(xmp_or_str):
-        if type(xmp_or_str) == str:
+        if type(xmp_or_str) in [ str ] + ([ unicode ] if sys.version_info[0] == 2 else []):
             xmp = XMPMeta()
             xmp.parse_from_str(xmp_or_str)
         else:
