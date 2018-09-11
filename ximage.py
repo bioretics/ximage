@@ -88,8 +88,8 @@ class XImageMeta(object):
             xmp = xmp_or_str
 
         try:
-            attribs = set([ x[1][8:] for x in XMPIterator(xmp, XMP_NS_ALIQUIS) if x[1].startswith('aliquis:') ])
             tag = 'acquisition'
+            attribs = set([ x[1][8:] for x in XMPIterator(xmp, XMP_NS_ALIQUIS) if x[1].startswith('aliquis:') ])
             acquisition = XImageMeta.parse_dict(xmp, tag) if '%s[1]' % (tag,) in attribs else {}
             tag = 'setup'
             setup = XImageMeta.parse_dict(xmp, tag) if '%s[1]' % (tag,) in attribs else {}
