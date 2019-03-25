@@ -552,18 +552,17 @@ class XValue(object):
         return str(self.val)
 
 def _ximage_index_connect(args, create=False):
-    if 'sqlite3' not in sys.modules:
-        import sqlite3
+    import sqlite3
 
-        # Custom database types converters and adapters
-        sqlite3.register_converter('xvalue', XValue.parse)
-        sqlite3.register_converter('color', lambda buf: tuple(np.frombuffer(buf, dtype='|u1').tolist()))
-        sqlite3.register_converter('vector', lambda buf: np.frombuffer(buf, dtype='<f4'))
-        sqlite3.register_converter('points', lambda buf: np.frombuffer(buf, dtype='<i4').reshape(len(buf) / 8, 2))
-        sqlite3.register_converter('uuid', lambda buf: UUID(bytes=buf))
-        sqlite3.register_adapter(XValue, lambda x: pickle.dumps(x.val))
-        sqlite3.register_adapter(np.ndarray, lambda a: np.getbuffer(a))
-        sqlite3.register_adapter(UUID, lambda uuid: buffer(uuid.get_bytes()))
+    # Custom database types converters and adapters
+    sqlite3.register_converter('xvalue', XValue.parse)
+    sqlite3.register_converter('color', lambda buf: tuple(np.frombuffer(buf, dtype='|u1').tolist()))
+    sqlite3.register_converter('vector', lambda buf: np.frombuffer(buf, dtype='<f4'))
+    sqlite3.register_converter('points', lambda buf: np.frombuffer(buf, dtype='<i4').reshape(len(buf) / 8, 2))
+    sqlite3.register_converter('uuid', lambda buf: UUID(bytes=buf))
+    sqlite3.register_adapter(XValue, lambda x: pickle.dumps(x.val))
+    sqlite3.register_adapter(np.ndarray, lambda a: np.getbuffer(a))
+    sqlite3.register_adapter(UUID, lambda uuid: buffer(uuid.get_bytes()))
 
     index_path = os.path.join(args.root, '.ximage-index.db')
     if not create:
