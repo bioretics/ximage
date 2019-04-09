@@ -535,8 +535,11 @@ def ximage_view(args):
         im_debug = None
 
     if im_debug is not None:
-        cv2.imshow(im_path, im_debug)
-        cv2.waitKey(0)
+        if args.output_path is None:
+            cv2.imshow(im_path, im_debug)
+            cv2.waitKey(0)
+        else:
+            cv2.imwrite(args.output_path, im_debug)
 
     return 0
 
@@ -651,6 +654,53 @@ def ximage_index(args):
                 sys.stderr.write('Error: inserting %s: %s\n' % (im_relpath, str(e)))
 
     return 0
+
+def ximage_stats(args):
+    try:
+        conn = _ximage_index_connect(args)
+    except IOError as e:
+        sys.stderr.write('Error: cannot open index: %s\n' % (str(e),))
+        return 1
+    except ImportError:
+        sys.stderr.write('Error: cannot import sqlite3 module\n')
+        return -1
+
+    cur = conn.cursor()
+
+    xclasses = cur.execute('SELECT classid, name FROM XClass;').fetchall()
+    (ximages_num,) = cur.execute('SELECT COUNT(*) FROM XImage;').fetchone()
+    (ximages_empty_num,) = cur.execute('SELECT COUNT(*) FROM (SELECT COUNT(*) AS count, XImage.id FROM XImage, XBelonging WHERE XImage.id=XBelonging.ximage_id GROUP BY XImage.id HAVING count=0);').fetchone()
+    (xitems_num,) = cur.execute('SELECT COUNT(*) FROM XItem;').fetchone()
+    (xblobs_num,) = cur.execute('SELECT COUNT(*) FROM XBlob;').fetchone()
+
+    print('Total classes:  %d%s' % (len(xclasses), ' (%s)' % (', '.join([ '%d: %s' % c for c in xclasses ])) if len(xclasses) > 0 else ''))
+    print('Total images:   %d (%d empty)' % (ximages_num, ximages_empty_num))
+    print('Total items:    %d' % xitems_num)
+    print('Total blobs:    %d' % xblobs_num)
+
+    try:
+        (avg_items_per_image,) = cur.execute('SELECT AVG(count) FROM (SELECT COUNT(*) AS count, XImage.id FROM XImage, XBelonging WHERE XImage.id=XBelonging.ximage_id GROUP BY XImage.id);').fetchone()
+        (min_items_per_image, _, min_items_per_image_path) = cur.execute('SELECT COUNT(*) AS count, XImage.id, path FROM XImage, XBelonging WHERE XImage.id=XBelonging.ximage_id GROUP BY XImage.id ORDER BY count ASC LIMIT 1;').fetchone()
+        (max_items_per_image, _, max_items_per_image_path) = cur.execute('SELECT COUNT(*) AS count, XImage.id, path FROM XImage, XBelonging WHERE XImage.id=XBelonging.ximage_id GROUP BY XImage.id ORDER BY count DESC LIMIT 1;').fetchone()
+        print('Items per image:\n   Minimum: %d (%s)\n   Maximum: %d (%s)\n   Average: %.1f' % (min_items_per_image, min_items_per_image_path, max_items_per_image, max_items_per_image_path, round(avg_items_per_image, 1)))
+    except ValueError:
+        print('No items found')
+
+    try:
+        (avg_blobs_per_item,) = cur.execute('SELECT AVG(count) FROM (SELECT COUNT(*) AS count, XBelonging.xitem_id FROM XBlob, XBelonging, XImage WHERE XImage.id=XBelonging.ximage_id AND XBelonging.id=XBlob.xbelonging_id GROUP BY XBelonging.xitem_id);').fetchone()
+        (min_blobs_per_item, min_blobs_per_item_uuid) = cur.execute('SELECT COUNT(*) AS count, XBelonging.xitem_id FROM XBlob, XBelonging, XImage WHERE XImage.id=XBelonging.ximage_id AND XBelonging.id=XBlob.xbelonging_id GROUP BY XBelonging.xitem_id ORDER BY count ASC LIMIT 1;').fetchone()
+        (max_blobs_per_item, max_blobs_per_item_uuid) = cur.execute('SELECT COUNT(*) AS count, XBelonging.xitem_id FROM XBlob, XBelonging, XImage WHERE XImage.id=XBelonging.ximage_id AND XBelonging.id=XBlob.xbelonging_id GROUP BY XBelonging.xitem_id ORDER BY count DESC LIMIT 1;').fetchone()
+        (avg_blobs_per_image,) = cur.execute('SELECT AVG(count) FROM (SELECT COUNT(*) AS count, XImage.id FROM XBlob, XBelonging, XImage WHERE XImage.id=XBelonging.ximage_id AND XBelonging.id=XBlob.xbelonging_id GROUP BY XImage.id);').fetchone()
+        (min_blobs_per_image, _, min_blobs_per_image_path) = cur.execute('SELECT COUNT(*) AS count, XImage.id, path FROM XBlob, XBelonging, XImage WHERE XImage.id=XBelonging.ximage_id AND XBelonging.id=XBlob.xbelonging_id GROUP BY XImage.id ORDER BY count ASC LIMIT 1;').fetchone()
+        (max_blobs_per_image, _, max_blobs_per_image_path) = cur.execute('SELECT COUNT(*) AS count, XImage.id, path FROM XBlob, XBelonging, XImage WHERE XImage.id=XBelonging.ximage_id AND XBelonging.id=XBlob.xbelonging_id GROUP BY XImage.id ORDER BY count DESC LIMIT 1;').fetchone()
+        (xblob_minarea, xblob_minarea_path) = cur.execute('SELECT area, path FROM XBlob, XBelonging, XImage WHERE XImage.id=XBelonging.ximage_id AND XBelonging.id=XBlob.xbelonging_id ORDER BY area ASC LIMIT 1;').fetchone()
+        (xblob_maxarea, xblob_maxarea_path) = cur.execute('SELECT area, path FROM XBlob, XBelonging, XImage WHERE XImage.id=XBelonging.ximage_id AND XBelonging.id=XBlob.xbelonging_id ORDER BY area DESC LIMIT 1;').fetchone()
+        (xblob_avgarea,) = cur.execute('SELECT AVG(area) FROM XBlob, XBelonging, XImage WHERE XImage.id=XBelonging.ximage_id AND XBelonging.id=XBlob.xbelonging_id;').fetchone()
+        print('Blobs per item:\n   Minimum: %d (%s)\n   Maximum: %d (%s)\n   Average: %.1f' % (min_blobs_per_item, str(min_blobs_per_item_uuid), max_blobs_per_item, str(max_blobs_per_item_uuid), round(avg_blobs_per_item, 1)))
+        print('Blobs per image:\n   Minimum: %d (%s)\n   Maximum: %d (%s)\n   Average: %.1f' % (min_blobs_per_image, min_blobs_per_image_path, max_blobs_per_image, max_blobs_per_image_path, round(avg_blobs_per_image, 1)))
+        print('Blobs areas:\n   Minimum: %dpx (%s)\n   Maximum: %dpx (%s)\n   Average: %dpx' % (xblob_minarea, xblob_minarea_path, xblob_maxarea, xblob_maxarea_path, xblob_avgarea))
+    except ValueError:
+        print('No blobs found')
 
 def ximage_query(args):
     class XEvalContext(object):
@@ -848,6 +898,7 @@ def ximage_main(prog_name='ximage'):
 
     parser_view = subparsers.add_parser('view', help='View images, blobs and other metadata')
     parser_view.add_argument('-m', '--metadata', type=str, required=False, default=None, help='Use this XML instead of image\'s XMP')
+    parser_view.add_argument('-o', '--output_path', type=str, required=False, default=None, help='Output image path')
     parser_view.add_argument('path', type=str, help='Image path')
     parser_view.set_defaults(func=ximage_view)
 
@@ -859,6 +910,10 @@ def ximage_main(prog_name='ximage'):
     parser_query.add_argument('-D', '--root', type=str, required=False, default=os.getcwd(), help='Root directory path (default: cwd)')
     parser_query.add_argument('query', nargs=argparse.REMAINDER)
     parser_query.set_defaults(func=ximage_query)
+
+    parser_stats = subparsers.add_parser('stats', help='Show some indexed directory statistics')
+    parser_stats.add_argument('-D', '--root', type=str, required=False, default=os.getcwd(), help='Root directory path (default: cwd)')
+    parser_stats.set_defaults(func=ximage_stats)
 
     args = parser.parse_args()
     sys.exit(args.func(args))
